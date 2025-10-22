@@ -1,0 +1,675 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Enums
+enum UserRole {
+  CUSTOMER
+  PROVIDER
+  ADMIN
+}
+
+enum Parish {
+  KINGSTON
+  ST_ANDREW
+  ST_CATHERINE
+  CLARENDON
+  MANCHESTER
+  ST_ELIZABETH
+  WESTMORELAND
+  HANOVER
+  ST_JAMES
+  TRELAWNY
+  ST_ANN
+  ST_MARY
+  PORTLAND
+  ST_THOMAS
+}
+
+enum Currency {
+  JMD
+  USD
+}
+
+enum PaymentGateway {
+  PAYMASTER
+  NCB
+  STRIPE
+  CASH
+}
+
+enum PaymentStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+  REFUNDED
+  CANCELLED
+}
+
+enum BookingStatus {
+  PENDING
+  CONFIRMED
+  COMPLETED
+  CANCELLED
+  NO_SHOW
+}
+
+enum SubscriptionPlan {
+  BASIC
+  PROFESSIONAL
+  PREMIUM
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  INACTIVE
+  CANCELLED
+  PAST_DUE
+}
+
+enum NotificationType {
+  EMAIL
+  SMS
+  PUSH
+}
+
+enum PortfolioItemType {
+  PHOTO
+  VIDEO_YOUTUBE
+  VIDEO_VIMEO
+}
+
+// Core Models
+model User {
+  id              String   @id @default(uuid())
+  email           String   @unique
+  phone           String? // International format
+  firstName       String
+  lastName        String
+  avatar          String?
+  role            UserRole @default(CUSTOMER)
+  isEmailVerified Boolean  @default(false)
+  isPhoneVerified Boolean  @default(false)
+
+  // Authentication (OAuth or Password)
+  passwordHash String? // For email/password authentication
+  googleId     String? @unique
+  appleId      String? @unique
+
+  // Relationships
+  customerBookings Booking[]                 @relation("CustomerBookings")
+  providerUsers    ProviderUser[] // Users can be associated with multiple providers
+  reviews          Review[]                  @relation("CustomerReviews")
+  conversations    ConversationParticipant[]
+  messages         Message[]
+  notifications    Notification[]
+  assignedBookings Booking[]                 @relation("AssignedBookings") // Bookings assigned to specific provider users
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("users")
+}
+
+model Location {
+  id      String  @id @default(uuid())
+  name    String // Location name/identifier
+  address String
+  city    String?
+  parish  Parish? // For Jamaica, can be null for international
+  state   String? // For other countries
+  country String  @default("Jamaica")
+
+  // Grid-based coordinates for better precision
+  latitude  Decimal @db.Decimal(10, 8) // Higher precision for exact positioning
+  longitude Decimal @db.Decimal(11, 8) // Higher precision for exact positioning
+
+  // Additional location data
+  zipCode  String?
+  timezone String  @default("America/Jamaica")
+
+  // Relationships
+  providerLocations ProviderLocation[]
+  bookings          Booking[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([latitude, longitude])
+  @@index([parish, city])
+  @@index([country, state, city])
+  @@map("locations")
+}
+
+model Provider {
+  id String @id @default(uuid())
+
+  // Business Information
+  businessName String
+  description  String  @db.Text
+  logoUrl      String?
+  bannerUrl    String?
+
+  // Contact Information
+  businessPhone String
+  businessEmail String
+  whatsapp      String?
+  website       String?
+
+  // Business Details
+  businessRegNo String? // Business registration number
+  taxRegNo      String? // Tax registration number
+
+  // Verification & Status
+  isVerified Boolean   @default(false)
+  isActive   Boolean   @default(true)
+  verifiedAt DateTime?
+
+  // Settings
+  autoAcceptBookings Boolean @default(false)
+  bookingBufferMins  Int     @default(15)
+  cancellationPolicy String? @db.Text
+
+  // Subscription
+  subscriptionPlan   SubscriptionPlan   @default(BASIC)
+  subscriptionStatus SubscriptionStatus @default(INACTIVE)
+  subscriptionId     String? // Stripe subscription ID
+  planExpiresAt      DateTime?
+
+  // Statistics
+  totalBookings Int     @default(0)
+  totalRevenue  Decimal @default(0) @db.Decimal(10, 2)
+  averageRating Float?
+  reviewCount   Int     @default(0)
+
+  // Relationships
+  providerUsers     ProviderUser[] // Multiple users can be part of a provider
+  providerLocations ProviderLocation[] // Provider can have multiple locations
+  services          Service[]
+  availabilities    Availability[]
+  bookings          Booking[]          @relation("ProviderBookings")
+  reviews           Review[]           @relation("ProviderReviews")
+  blogPosts         BlogPost[]
+  portfolioItems    PortfolioItem[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([isActive, isVerified])
+  @@map("providers")
+}
+
+model ProviderUser {
+  id         String   @id @default(uuid())
+  providerId String
+  provider   Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Role within the provider business
+  title    String? // e.g., "Senior Barber", "Nail Technician", "Owner"
+  isOwner  Boolean @default(false)
+  isActive Boolean @default(true)
+
+  // Permissions
+  canManageBookings  Boolean @default(true)
+  canManageServices  Boolean @default(false)
+  canManageLocations Boolean @default(false)
+  canViewAnalytics   Boolean @default(false)
+
+  // Professional details
+  bio       String?  @db.Text
+  expertise String[] // Array of specialties
+
+  // Individual statistics
+  completedBookings Int    @default(0)
+  averageRating     Float?
+  reviewCount       Int    @default(0)
+
+  // Relationships
+  availabilities Availability[]
+  bookings       Booking[]      @relation("ProviderUserBookings")
+
+  joinedAt  DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([providerId, userId])
+  @@index([providerId])
+  @@index([userId])
+  @@map("provider_users")
+}
+
+model ProviderLocation {
+  id         String   @id @default(uuid())
+  providerId String
+  provider   Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  locationId String
+  location   Location @relation(fields: [locationId], references: [id], onDelete: Cascade)
+
+  // Location-specific details for this provider
+  isPrimary Boolean @default(false) // One primary location per provider
+  isActive  Boolean @default(true)
+
+  // Relationships
+  availabilities Availability[]
+
+  createdAt DateTime @default(now())
+
+  @@unique([providerId, locationId])
+  @@index([providerId])
+  @@map("provider_locations")
+}
+
+model Service {
+  id         String   @id @default(uuid())
+  providerId String
+  provider   Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+
+  name        String
+  description String  @db.Text
+  category    String // Hair, Beauty, Photography, etc.
+  subCategory String? // Cuts, Color, Locs, etc.
+
+  // Pricing (JMD primary)
+  basePrice Decimal  @db.Decimal(8, 2)
+  currency  Currency @default(JMD)
+
+  // Service Details
+  duration Int // Duration in minutes
+  isActive Boolean @default(true)
+
+  // Booking Settings
+  requiresApproval   Boolean @default(false)
+  advanceBookingDays Int     @default(30)
+
+  // Add-ons and packages
+  addOns       ServiceAddOn[]
+  bookingItems BookingItem[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([providerId])
+  @@index([category, subCategory])
+  @@map("services")
+}
+
+model ServiceAddOn {
+  id        String  @id @default(uuid())
+  serviceId String
+  service   Service @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+
+  name     String
+  price    Decimal @db.Decimal(8, 2)
+  duration Int // Additional minutes
+
+  @@map("service_add_ons")
+}
+
+model Availability {
+  id         String   @id @default(uuid())
+  providerId String
+  provider   Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+
+  // Optional: Specific provider user availability
+  providerUserId String?
+  providerUser   ProviderUser? @relation(fields: [providerUserId], references: [id], onDelete: Cascade)
+
+  // Optional: Location-specific availability
+  providerLocationId String?
+  providerLocation   ProviderLocation? @relation(fields: [providerLocationId], references: [id], onDelete: Cascade)
+
+  dayOfWeek Int // 0 = Sunday, 6 = Saturday
+  startTime String // "09:00"
+  endTime   String // "17:00"
+  isActive  Boolean @default(true)
+
+  // Date-specific overrides
+  specificDate DateTime? // For one-off availability changes
+  isOverride   Boolean   @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([providerId, dayOfWeek])
+  @@index([providerUserId, dayOfWeek])
+  @@map("availabilities")
+}
+
+model Booking {
+  id String @id @default(uuid())
+
+  // Relationships
+  customerId String?
+  customer   User?    @relation("CustomerBookings", fields: [customerId], references: [id])
+  providerId String
+  provider   Provider @relation("ProviderBookings", fields: [providerId], references: [id])
+
+  // Specific provider user assignment
+  assignedUserId String?
+  assignedUser   User?   @relation("AssignedBookings", fields: [assignedUserId], references: [id])
+
+  // Provider user assignment (for tracking within provider context)
+  providerUserId String?
+  providerUser   ProviderUser? @relation("ProviderUserBookings", fields: [providerUserId], references: [id])
+
+  // Location for this booking
+  locationId String
+  location   Location @relation(fields: [locationId], references: [id])
+
+  // Booking Details
+  startTime DateTime
+  endTime   DateTime
+  status    BookingStatus @default(PENDING)
+
+  // Pricing
+  subtotal    Decimal  @db.Decimal(8, 2)
+  taxAmount   Decimal  @default(0) @db.Decimal(8, 2)
+  totalAmount Decimal  @db.Decimal(8, 2)
+  currency    Currency @default(JMD)
+
+  // Guest Booking Support
+  isGuestBooking Boolean @default(false)
+  guestFirstName String?
+  guestLastName  String?
+  guestEmail     String?
+  guestPhone     String?
+
+  // Customer Information
+  customerNotes String? @db.Text
+
+  // Provider Information
+  providerNotes String? @db.Text
+
+  // Booking Items
+  items BookingItem[]
+
+  // Payment
+  payment Payment?
+
+  // Review
+  review Review?
+
+  // Timestamps
+  confirmedAt DateTime?
+  completedAt DateTime?
+  cancelledAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([customerId])
+  @@index([providerId])
+  @@index([assignedUserId])
+  @@index([providerUserId])
+  @@index([locationId])
+  @@index([startTime])
+  @@index([status])
+  @@index([isGuestBooking])
+  @@index([guestEmail])
+  @@map("bookings")
+}
+
+model BookingItem {
+  id        String  @id @default(uuid())
+  bookingId String
+  booking   Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  serviceId String
+  service   Service @relation(fields: [serviceId], references: [id])
+
+  quantity  Int     @default(1)
+  unitPrice Decimal @db.Decimal(8, 2)
+  total     Decimal @db.Decimal(8, 2)
+
+  @@map("booking_items")
+}
+
+model Payment {
+  id        String  @id @default(uuid())
+  bookingId String  @unique
+  booking   Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  // Payment Details
+  amount   Decimal        @db.Decimal(8, 2)
+  currency Currency       @default(JMD)
+  gateway  PaymentGateway
+  status   PaymentStatus  @default(PENDING)
+
+  // Gateway-specific
+  gatewayPaymentId String? // External payment ID
+  gatewayResponse  Json? // Raw gateway response
+
+  // Fees
+  platformFee    Decimal @db.Decimal(8, 2)
+  gatewayFee     Decimal @db.Decimal(8, 2)
+  providerAmount Decimal @db.Decimal(8, 2)
+
+  // Timing
+  processedAt DateTime?
+  failedAt    DateTime?
+  refundedAt  DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([gateway])
+  @@index([status])
+  @@map("payments")
+}
+
+model Review {
+  id String @id @default(uuid())
+
+  // Relationships
+  bookingId  String   @unique
+  booking    Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  customerId String
+  customer   User     @relation("CustomerReviews", fields: [customerId], references: [id])
+  providerId String
+  provider   Provider @relation("ProviderReviews", fields: [providerId], references: [id])
+
+  // Review Content
+  rating  Int // 1-5 stars
+  comment String?  @db.Text
+  photos  String[] // Array of S3 URLs
+
+  // Provider Response
+  response    String?   @db.Text
+  respondedAt DateTime?
+
+  // Moderation
+  isApproved Boolean @default(true)
+  isFlagged  Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([providerId])
+  @@index([rating])
+  @@map("reviews")
+}
+
+model BlogPost {
+  id         String   @id @default(uuid())
+  providerId String
+  provider   Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+
+  title      String
+  slug       String  @unique
+  excerpt    String? @db.Text
+  content    String  @db.Text
+  coverImage String?
+
+  // SEO
+  metaTitle       String?
+  metaDescription String?
+  keywords        String[]
+
+  // Publishing
+  isPublished Boolean   @default(false)
+  publishedAt DateTime?
+
+  // Engagement
+  viewCount Int @default(0)
+  likeCount Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([providerId])
+  @@index([isPublished, publishedAt])
+  @@map("blog_posts")
+}
+
+model PortfolioItem {
+  id         String   @id @default(uuid())
+  providerId String
+  provider   Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+
+  title       String
+  description String? @db.Text
+
+  // Media content - can be photo or video
+  type     PortfolioItemType
+  imageUrl String? // For photos
+  videoUrl String? // For YouTube/Vimeo URLs
+  videoId  String? // YouTube/Vimeo video ID for embedding
+
+  // Metadata
+  category String // Before/After, Styles, Events, etc.
+  tags     String[] // Searchable tags
+
+  // Ordering
+  sortOrder  Int     @default(0)
+  isFeatured Boolean @default(false)
+
+  createdAt DateTime @default(now())
+
+  @@index([providerId, category])
+  @@index([type])
+  @@map("portfolio_items")
+}
+
+// Communication Models
+model Conversation {
+  id String @id @default(uuid())
+
+  // Relationships
+  participants ConversationParticipant[]
+  messages     Message[]
+
+  // Metadata
+  lastMessageAt DateTime?
+  isActive      Boolean   @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("conversations")
+}
+
+model ConversationParticipant {
+  id             String       @id @default(uuid())
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  userId         String?
+  user           User?        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Guest participant support
+  isGuest         Boolean @default(false)
+  guestName       String?
+  guestEmail      String?
+  guestPhone      String?
+  guestIdentifier String? // Session ID or unique identifier for guest
+
+  // Relationships
+  sentMessages Message[]
+
+  joinedAt   DateTime  @default(now())
+  lastReadAt DateTime?
+
+  @@unique([conversationId, userId])
+  @@index([guestIdentifier])
+  @@index([guestEmail])
+  @@map("conversation_participants")
+}
+
+model Message {
+  id             String       @id @default(uuid())
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  // Sender can be either a registered user or a conversation participant (including guests)
+  senderId            String?
+  sender              User?                    @relation(fields: [senderId], references: [id], onDelete: Cascade)
+  senderParticipantId String?
+  senderParticipant   ConversationParticipant? @relation(fields: [senderParticipantId], references: [id], onDelete: Cascade)
+
+  content     String   @db.Text
+  attachments String[] // Array of file URLs
+
+  // Message Type
+  isSystemMessage Boolean @default(false)
+
+  createdAt DateTime @default(now())
+
+  @@index([conversationId, createdAt])
+  @@index([senderId])
+  @@index([senderParticipantId])
+  @@map("messages")
+}
+
+model Notification {
+  id     String @id @default(uuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  type    NotificationType
+  title   String
+  content String           @db.Text
+  data    Json? // Additional data
+
+  isRead Boolean   @default(false)
+  sentAt DateTime?
+  readAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@index([userId, isRead])
+  @@map("notifications")
+}
+
+// System Models
+model Setting {
+  id    String @id @default(uuid())
+  key   String @unique
+  value Json
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("settings")
+}
+
+model AuditLog {
+  id        String  @id @default(uuid())
+  userId    String?
+  action    String
+  entity    String
+  entityId  String
+  changes   Json?
+  ipAddress String?
+  userAgent String?
+
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([entity, entityId])
+  @@map("audit_logs")
+}
