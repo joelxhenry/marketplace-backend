@@ -237,7 +237,7 @@ export class SearchService {
     `;
 
     // Get full provider data for the results
-    const providerIds = providers.map(p => p.id);
+    const providerIds = (providers as any[]).map(p => p.id);
 
     return this.prisma.provider.findMany({
       where: { id: { in: providerIds } },

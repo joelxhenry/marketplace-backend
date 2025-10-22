@@ -111,7 +111,7 @@ export class PortfolioService {
   }
 
   private extractVimeoId(url: string): string | undefined {
-    const regex = /(?:vimeo\.com\/)(?:.*#|.*/videos/)?([0-9]+)/i;
+    const regex = new RegExp('(?:vimeo\\.com\\/)(?:.*#|.*\/videos\/)?([0-9]+)', 'i');
     const match = url.match(regex);
     return match ? match[1] : undefined;
   }

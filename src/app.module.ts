@@ -11,6 +11,7 @@ import { ProviderUsersModule } from './providers/provider-users.module';
 import { SearchModule } from './search/search.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { BookingsModule } from './bookings/bookings.module';
+import { HealthModule } from './health/health.module';
 
 @Module({
   imports: [
@@ -26,6 +27,7 @@ import { BookingsModule } from './bookings/bookings.module';
     SearchModule,
     NotificationsModule,
     BookingsModule,
+    HealthModule,
   ],
   controllers: [AppController],
   providers: [AppService],
