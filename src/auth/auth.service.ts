@@ -1,17 +1,18 @@
 import { Injectable, UnauthorizedException, ConflictException, BadRequestException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
+import { ConfigService } from '@nestjs/config';
 import { UserRole } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 
 import { DatabaseService } from '../database/database.service';
-import { RegisterDto } from './dto/register.dto';
-import { LoginDto } from './dto/login.dto';
+import { RegisterDto, LoginDto } from './dto/auth.dto';
 
 @Injectable()
 export class AuthService {
   constructor(
     private readonly prisma: DatabaseService,
     private readonly jwtService: JwtService,
+    private readonly configService: ConfigService,
   ) {}
 
   async googleLogin(profile: any) {
@@ -90,9 +91,10 @@ export class AuthService {
         isOwner: pu.isOwner,
       }))
     };
-    const accessToken = this.jwtService.sign(payload);
+    const accessToken = this.jwtService.sign(payload, { expiresIn: '1h' });
+    const refreshToken = this.jwtService.sign({ sub: user.id }, { expiresIn: '7d' });
 
-    return { user, accessToken };
+    return { user, accessToken, refreshToken };
   }
 
   async appleLogin(appleId: string, email: string, firstName?: string, lastName?: string) {
@@ -173,9 +175,10 @@ export class AuthService {
         isOwner: pu.isOwner,
       }))
     };
-    const accessToken = this.jwtService.sign(payload);
+    const accessToken = this.jwtService.sign(payload, { expiresIn: '1h' });
+    const refreshToken = this.jwtService.sign({ sub: user.id }, { expiresIn: '7d' });
 
-    return { user, accessToken };
+    return { user, accessToken, refreshToken };
   }
 
   // Password-based authentication methods
@@ -233,12 +236,13 @@ export class AuthService {
         isOwner: pu.isOwner,
       }))
     };
-    const accessToken = this.jwtService.sign(payload);
+    const accessToken = this.jwtService.sign(payload, { expiresIn: '1h' });
+    const refreshToken = this.jwtService.sign({ sub: user.id }, { expiresIn: '7d' });
 
     // Remove password hash from response
     const { passwordHash: _, ...userWithoutPassword } = user;
 
-    return { user: userWithoutPassword, accessToken };
+    return { user: userWithoutPassword, accessToken, refreshToken };
   }
 
   async login(loginDto: LoginDto) {
@@ -289,12 +293,63 @@ export class AuthService {
         isOwner: pu.isOwner,
       }))
     };
-    const accessToken = this.jwtService.sign(payload);
+    const accessToken = this.jwtService.sign(payload, { expiresIn: '1h' });
+    const refreshToken = this.jwtService.sign({ sub: user.id }, { expiresIn: '7d' });
 
     // Remove password hash from response
     const { passwordHash: _, ...userWithoutPassword } = user;
 
-    return { user: userWithoutPassword, accessToken };
+    return { user: userWithoutPassword, accessToken, refreshToken };
+  }
+
+  async refreshToken(token: string) {
+    try {
+      // Verify the refresh token
+      const payload = this.jwtService.verify(token);
+
+      // Get user from database
+      const user = await this.prisma.user.findUnique({
+        where: { id: payload.sub },
+        include: {
+          providerUsers: {
+            include: {
+              provider: {
+                select: {
+                  id: true,
+                  businessName: true,
+                  subscriptionPlan: true,
+                },
+              },
+            },
+          },
+        },
+      });
+
+      if (!user) {
+        throw new UnauthorizedException('User not found');
+      }
+
+      // Generate new tokens
+      const newPayload = {
+        sub: user.id,
+        email: user.email,
+        role: user.role,
+        providers: user.providerUsers.map(pu => ({
+          id: pu.provider.id,
+          name: pu.provider.businessName,
+          isOwner: pu.isOwner,
+        }))
+      };
+      const accessToken = this.jwtService.sign(newPayload, { expiresIn: '1h' });
+      const refreshToken = this.jwtService.sign({ sub: user.id }, { expiresIn: '7d' });
+
+      // Remove password hash from response
+      const { passwordHash: _, ...userWithoutPassword } = user;
+
+      return { user: userWithoutPassword, accessToken, refreshToken };
+    } catch (error) {
+      throw new UnauthorizedException('Invalid or expired refresh token');
+    }
   }
 
   async validateUser(email: string, password: string): Promise<any> {
