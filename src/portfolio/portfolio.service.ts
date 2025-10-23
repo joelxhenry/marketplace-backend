@@ -1,10 +1,171 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
 import { PortfolioItemType } from '@prisma/client';
 import { DatabaseService } from '../database/database.service';
+import { CreatePortfolioItemDto, UpdatePortfolioItemDto } from './dto/portfolio.dto';
 
 @Injectable()
 export class PortfolioService {
   constructor(private readonly prisma: DatabaseService) {}
+
+  /**
+   * Create portfolio item with permission check
+   */
+  async create(providerId: string, createDto: CreatePortfolioItemDto, userId: string) {
+    // Check if user has permission
+    const providerUser = await this.prisma.providerUser.findFirst({
+      where: {
+        providerId,
+        userId,
+        isActive: true,
+      },
+    });
+
+    if (!providerUser || (!providerUser.isOwner && !providerUser.canManageServices)) {
+      throw new ForbiddenException('You do not have permission to manage portfolio for this provider');
+    }
+
+    // Extract video ID if video type
+    let videoId: string | undefined;
+    if ((createDto.type === PortfolioItemType.VIDEO_YOUTUBE || createDto.type === PortfolioItemType.VIDEO_VIMEO) && createDto.videoUrl) {
+      videoId = this.extractVideoId(createDto.videoUrl);
+    }
+
+    // Validate URLs based on type
+    if (createDto.type === PortfolioItemType.PHOTO && !createDto.imageUrl) {
+      throw new BadRequestException('Image URL is required for photo portfolio items');
+    }
+    if ((createDto.type === PortfolioItemType.VIDEO_YOUTUBE || createDto.type === PortfolioItemType.VIDEO_VIMEO) && !createDto.videoUrl) {
+      throw new BadRequestException('Video URL is required for video portfolio items');
+    }
+
+    return this.prisma.portfolioItem.create({
+      data: {
+        ...createDto,
+        providerId,
+        videoId,
+        tags: createDto.tags || [],
+      },
+    });
+  }
+
+  /**
+   * Get portfolio item by ID
+   */
+  async findOne(id: string) {
+    const item = await this.prisma.portfolioItem.findUnique({
+      where: { id },
+      include: {
+        provider: {
+          select: {
+            id: true,
+            businessName: true,
+            logoUrl: true,
+            isVerified: true,
+          },
+        },
+      },
+    });
+
+    if (!item) {
+      throw new NotFoundException(`Portfolio item with ID ${id} not found`);
+    }
+
+    return item;
+  }
+
+  /**
+   * Update portfolio item with permission check
+   */
+  async update(id: string, updateDto: UpdatePortfolioItemDto, userId: string) {
+    // Find the portfolio item
+    const item = await this.prisma.portfolioItem.findUnique({
+      where: { id },
+      select: { providerId: true, type: true },
+    });
+
+    if (!item) {
+      throw new NotFoundException(`Portfolio item with ID ${id} not found`);
+    }
+
+    // Check if user has permission
+    const providerUser = await this.prisma.providerUser.findFirst({
+      where: {
+        providerId: item.providerId,
+        userId,
+        isActive: true,
+      },
+    });
+
+    if (!providerUser || (!providerUser.isOwner && !providerUser.canManageServices)) {
+      throw new ForbiddenException('You do not have permission to manage portfolio for this provider');
+    }
+
+    // Re-extract video ID if video URL is being updated
+    let videoId: string | undefined;
+    if (updateDto.videoUrl && (item.type === PortfolioItemType.VIDEO_YOUTUBE || item.type === PortfolioItemType.VIDEO_VIMEO)) {
+      videoId = this.extractVideoId(updateDto.videoUrl);
+    }
+
+    return this.prisma.portfolioItem.update({
+      where: { id },
+      data: {
+        ...updateDto,
+        ...(videoId && { videoId }),
+      },
+    });
+  }
+
+  /**
+   * Delete portfolio item with permission check
+   */
+  async remove(id: string, userId: string) {
+    // Find the portfolio item
+    const item = await this.prisma.portfolioItem.findUnique({
+      where: { id },
+      select: { providerId: true, title: true },
+    });
+
+    if (!item) {
+      throw new NotFoundException(`Portfolio item with ID ${id} not found`);
+    }
+
+    // Check if user has permission
+    const providerUser = await this.prisma.providerUser.findFirst({
+      where: {
+        providerId: item.providerId,
+        userId,
+        isActive: true,
+      },
+    });
+
+    if (!providerUser || (!providerUser.isOwner && !providerUser.canManageServices)) {
+      throw new ForbiddenException('You do not have permission to manage portfolio for this provider');
+    }
+
+    await this.prisma.portfolioItem.delete({
+      where: { id },
+    });
+
+    return {
+      success: true,
+      message: `Portfolio item "${item.title}" has been deleted`,
+    };
+  }
+
+  /**
+   * Extract video ID from URL (supports YouTube and Vimeo)
+   */
+  private extractVideoId(url: string): string | undefined {
+    // Try YouTube first
+    const youtubeId = this.extractYouTubeId(url);
+    if (youtubeId) return youtubeId;
+
+    // Try Vimeo
+    const vimeoId = this.extractVimeoId(url);
+    if (vimeoId) return vimeoId;
+
+    return undefined;
+  }
 
   async createPortfolioItem(data: {
     providerId: string;
