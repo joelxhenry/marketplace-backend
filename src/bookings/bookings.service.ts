@@ -1,8 +1,18 @@
-import { Injectable, BadRequestException, ForbiddenException } from '@nestjs/common';
+import {
+  Injectable,
+  BadRequestException,
+  ForbiddenException,
+  NotFoundException,
+} from '@nestjs/common';
 import { BookingStatus } from '@prisma/client';
 import { DatabaseService } from '../database/database.service';
 import { NotificationsService } from '../notifications/notifications.service';
-import { CreateBookingDto, GuestInfoDto } from './dto';
+import {
+  CreateBookingDto,
+  UpdateBookingDto,
+  UpdateBookingStatusDto,
+  GetBookingsQueryDto,
+} from './dto';
 
 @Injectable()
 export class BookingsService {
@@ -381,5 +391,414 @@ export class BookingsService {
     }
 
     return booking;
+  }
+
+  async getUserBookings(
+    userId: string,
+    dto: GetBookingsQueryDto,
+  ) {
+    const { page = 1, limit = 20, status, startDate, endDate } = dto;
+    const skip = (page - 1) * limit;
+
+    const where: any = {
+      customerId: userId,
+      ...(status && { status }),
+      ...(startDate && { startTime: { gte: new Date(startDate) } }),
+      ...(endDate && { endTime: { lte: new Date(endDate) } }),
+    };
+
+    const [bookings, total] = await Promise.all([
+      this.prisma.booking.findMany({
+        where,
+        include: {
+          provider: {
+            select: {
+              businessName: true,
+              businessPhone: true,
+              businessEmail: true,
+              logoUrl: true,
+            },
+          },
+          location: {
+            select: {
+              name: true,
+              address: true,
+              city: true,
+              parish: true,
+            },
+          },
+          assignedUser: {
+            select: {
+              firstName: true,
+              lastName: true,
+              avatar: true,
+            },
+          },
+          items: {
+            include: {
+              service: {
+                select: {
+                  name: true,
+                  duration: true,
+                  basePrice: true,
+                },
+              },
+            },
+          },
+          payment: {
+            select: {
+              status: true,
+              amount: true,
+              gateway: true,
+            },
+          },
+        },
+        skip,
+        take: limit,
+        orderBy: { startTime: 'desc' },
+      }),
+      this.prisma.booking.count({ where }),
+    ]);
+
+    return {
+      bookings,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+      },
+    };
+  }
+
+  async getProviderBookingsPaginated(
+    providerId: string,
+    userId: string,
+    dto: GetBookingsQueryDto,
+  ) {
+    // Check if user has access to provider bookings
+    const providerUser = await this.prisma.providerUser.findFirst({
+      where: {
+        providerId,
+        userId,
+        isActive: true,
+      },
+    });
+
+    if (!providerUser) {
+      throw new ForbiddenException('Access denied');
+    }
+
+    const { page = 1, limit = 20, status, locationId, assignedUserId, startDate, endDate } = dto;
+    const skip = (page - 1) * limit;
+
+    let filters: any = {
+      ...(status && { status }),
+      ...(locationId && { locationId }),
+      ...(assignedUserId && { assignedUserId }),
+      ...(startDate && { startTime: { gte: new Date(startDate) } }),
+      ...(endDate && { endTime: { lte: new Date(endDate) } }),
+    };
+
+    // If user is not owner and can't manage bookings, only show their assigned bookings
+    if (!providerUser.isOwner && !providerUser.canManageBookings) {
+      filters = { ...filters, assignedUserId: userId };
+    }
+
+    const where = {
+      providerId,
+      ...filters,
+    };
+
+    const [bookings, total] = await Promise.all([
+      this.prisma.booking.findMany({
+        where,
+        include: {
+          customer: {
+            select: {
+              firstName: true,
+              lastName: true,
+              email: true,
+              phone: true,
+              avatar: true,
+            },
+          },
+          assignedUser: {
+            select: {
+              firstName: true,
+              lastName: true,
+              avatar: true,
+            },
+          },
+          location: {
+            select: {
+              name: true,
+              address: true,
+              city: true,
+              parish: true,
+            },
+          },
+          items: {
+            include: {
+              service: {
+                select: {
+                  name: true,
+                  duration: true,
+                },
+              },
+            },
+          },
+          payment: {
+            select: {
+              status: true,
+              amount: true,
+              gateway: true,
+            },
+          },
+        },
+        skip,
+        take: limit,
+        orderBy: { startTime: 'asc' },
+      }),
+      this.prisma.booking.count({ where }),
+    ]);
+
+    return {
+      bookings,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+      },
+    };
+  }
+
+  async updateBooking(
+    bookingId: string,
+    userId: string,
+    dto: UpdateBookingDto,
+  ) {
+    const booking = await this.prisma.booking.findUnique({
+      where: { id: bookingId },
+    });
+
+    if (!booking) {
+      throw new NotFoundException('Booking not found');
+    }
+
+    // Only customer or provider team can update
+    const isCustomer = booking.customerId === userId;
+    const providerUser = await this.prisma.providerUser.findFirst({
+      where: {
+        providerId: booking.providerId,
+        userId,
+        isActive: true,
+      },
+    });
+
+    if (!isCustomer && !providerUser) {
+      throw new ForbiddenException('You do not have permission to update this booking');
+    }
+
+    // Customers can only update if booking is PENDING or CONFIRMED
+    const allowedStatuses: BookingStatus[] = [BookingStatus.PENDING, BookingStatus.CONFIRMED];
+    if (isCustomer && !allowedStatuses.includes(booking.status)) {
+      throw new BadRequestException('Cannot update booking in current status');
+    }
+
+    return this.prisma.booking.update({
+      where: { id: bookingId },
+      data: {
+        ...(dto.startTime && { startTime: new Date(dto.startTime) }),
+        ...(dto.endTime && { endTime: new Date(dto.endTime) }),
+        ...(dto.customerNotes !== undefined && { customerNotes: dto.customerNotes }),
+        ...(dto.assignedUserId !== undefined && { assignedUserId: dto.assignedUserId }),
+      },
+      include: {
+        customer: {
+          select: {
+            firstName: true,
+            lastName: true,
+            email: true,
+            phone: true,
+            avatar: true,
+          },
+        },
+        provider: {
+          select: {
+            businessName: true,
+            businessPhone: true,
+            businessEmail: true,
+            logoUrl: true,
+          },
+        },
+        location: true,
+        assignedUser: {
+          select: {
+            firstName: true,
+            lastName: true,
+            avatar: true,
+          },
+        },
+        items: {
+          include: {
+            service: {
+              select: {
+                name: true,
+                description: true,
+                duration: true,
+                basePrice: true,
+              },
+            },
+          },
+        },
+        payment: true,
+      },
+    });
+  }
+
+  async updateBookingStatus(
+    bookingId: string,
+    userId: string,
+    dto: UpdateBookingStatusDto,
+  ) {
+    const booking = await this.prisma.booking.findUnique({
+      where: { id: bookingId },
+    });
+
+    if (!booking) {
+      throw new NotFoundException('Booking not found');
+    }
+
+    // Only provider team can update status
+    const providerUser = await this.prisma.providerUser.findFirst({
+      where: {
+        providerId: booking.providerId,
+        userId,
+        isActive: true,
+      },
+    });
+
+    if (!providerUser || (!providerUser.isOwner && !providerUser.canManageBookings)) {
+      throw new ForbiddenException('You do not have permission to update booking status');
+    }
+
+    return this.prisma.booking.update({
+      where: { id: bookingId },
+      data: {
+        status: dto.status,
+        ...(dto.providerNotes && { providerNotes: dto.providerNotes }),
+      },
+      include: {
+        customer: {
+          select: {
+            firstName: true,
+            lastName: true,
+            email: true,
+            phone: true,
+            avatar: true,
+          },
+        },
+        provider: {
+          select: {
+            businessName: true,
+            businessPhone: true,
+            businessEmail: true,
+            logoUrl: true,
+          },
+        },
+        location: true,
+        assignedUser: {
+          select: {
+            firstName: true,
+            lastName: true,
+            avatar: true,
+          },
+        },
+        items: {
+          include: {
+            service: {
+              select: {
+                name: true,
+                description: true,
+                duration: true,
+                basePrice: true,
+              },
+            },
+          },
+        },
+        payment: true,
+      },
+    });
+  }
+
+  async cancelBooking(bookingId: string, userId: string) {
+    const booking = await this.prisma.booking.findUnique({
+      where: { id: bookingId },
+    });
+
+    if (!booking) {
+      throw new NotFoundException('Booking not found');
+    }
+
+    // Only customer or provider team can cancel
+    const isCustomer = booking.customerId === userId;
+    const providerUser = await this.prisma.providerUser.findFirst({
+      where: {
+        providerId: booking.providerId,
+        userId,
+        isActive: true,
+      },
+    });
+
+    if (!isCustomer && !providerUser) {
+      throw new ForbiddenException('You do not have permission to cancel this booking');
+    }
+
+    // Cannot cancel if already completed or cancelled
+    const nonCancellableStatuses: BookingStatus[] = [BookingStatus.COMPLETED, BookingStatus.CANCELLED];
+    if (nonCancellableStatuses.includes(booking.status)) {
+      throw new BadRequestException('Cannot cancel booking in current status');
+    }
+
+    return this.prisma.booking.update({
+      where: { id: bookingId },
+      data: {
+        status: BookingStatus.CANCELLED,
+      },
+      include: {
+        customer: {
+          select: {
+            firstName: true,
+            lastName: true,
+            email: true,
+            phone: true,
+            avatar: true,
+          },
+        },
+        provider: {
+          select: {
+            businessName: true,
+            businessPhone: true,
+            businessEmail: true,
+            logoUrl: true,
+          },
+        },
+        location: true,
+        items: {
+          include: {
+            service: {
+              select: {
+                name: true,
+                duration: true,
+                basePrice: true,
+              },
+            },
+          },
+        },
+        payment: true,
+      },
+    });
   }
 }
