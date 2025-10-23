@@ -1,10 +1,71 @@
 import { Injectable } from '@nestjs/common';
 import { Parish, PortfolioItemType } from '@prisma/client';
 import { DatabaseService } from '../database/database.service';
+import {
+  SearchProvidersDto,
+  SearchProvidersResponseDto,
+  ProviderSearchResultDto,
+} from './dto/search.dto';
 
 @Injectable()
 export class SearchService {
   constructor(private readonly prisma: DatabaseService) {}
+
+  async search(dto: SearchProvidersDto): Promise<SearchProvidersResponseDto> {
+    const result = await this.searchProviders({
+      query: dto.query,
+      parish: dto.parish,
+      city: dto.city,
+      category: dto.category,
+      latitude: dto.latitude,
+      longitude: dto.longitude,
+      radius: dto.radius,
+      minRating: dto.minRating,
+      maxPrice: dto.maxPrice,
+      availability: dto.availability ? new Date(dto.availability) : undefined,
+      page: dto.page,
+      limit: dto.limit,
+    });
+
+    // Format providers for response
+    const formattedProviders: ProviderSearchResultDto[] = result.providers.map(
+      (provider: any) => ({
+        id: provider.id,
+        businessName: provider.businessName,
+        description: provider.description,
+        logo: provider.logo,
+        averageRating: provider.averageRating || 0,
+        reviewCount: provider.reviewCount || provider._count?.reviews || 0,
+        isVerified: provider.isVerified,
+        distance: provider.distance,
+        primaryLocation: provider.providerLocations?.[0]?.location
+          ? {
+              id: provider.providerLocations[0].location.id,
+              name: provider.providerLocations[0].location.name,
+              address: provider.providerLocations[0].location.address,
+              city: provider.providerLocations[0].location.city,
+              parish: provider.providerLocations[0].location.parish,
+              latitude: provider.providerLocations[0].location.latitude,
+              longitude: provider.providerLocations[0].location.longitude,
+            }
+          : undefined,
+        services: provider.services || [],
+        portfolioItems: provider.portfolioItems || [],
+        teamMembers:
+          provider.providerUsers?.map((pu: any) => ({
+            firstName: pu.user.firstName,
+            lastName: pu.user.lastName,
+            avatar: pu.user.avatar,
+          })) || [],
+        createdAt: provider.createdAt,
+      }),
+    );
+
+    return {
+      providers: formattedProviders,
+      pagination: result.pagination,
+    };
+  }
 
   async searchProviders(filters: {
     query?: string;
