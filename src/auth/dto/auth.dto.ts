@@ -119,8 +119,8 @@ export class RefreshTokenDto {
   refreshToken: string;
 }
 
-// User Information in Response
-export class UserResponseDto {
+// User Information in Authentication Response
+export class AuthUserResponseDto {
   @ApiProperty({
     description: 'User ID',
     example: 'clx1y2z3a4b5c6d7e8f9g0h1',
@@ -180,9 +180,9 @@ export class AuthResponseDto {
 
   @ApiProperty({
     description: 'User information',
-    type: UserResponseDto,
+    type: AuthUserResponseDto,
   })
-  user: UserResponseDto;
+  user: AuthUserResponseDto;
 
   @ApiProperty({
     description: 'Token type',

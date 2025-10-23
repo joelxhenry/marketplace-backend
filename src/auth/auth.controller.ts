@@ -10,7 +10,7 @@ import {
   AppleAuthDto,
   AuthResponseDto,
   RefreshTokenDto,
-  UserResponseDto
+  AuthUserResponseDto
 } from './dto/auth.dto';
 
 @ApiTags('auth')
@@ -109,7 +109,7 @@ export class AuthController {
   @ApiResponse({
     status: 200,
     description: 'User profile retrieved successfully',
-    type: UserResponseDto,
+    type: AuthUserResponseDto,
   })
   @ApiResponse({
     status: 401,
