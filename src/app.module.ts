@@ -15,6 +15,8 @@ import { HealthModule } from './health/health.module';
 import { UsersModule } from './users/users.module';
 import { ServicesModule } from './services/services.module';
 import { UploadModule } from './upload/upload.module';
+import { ReviewsModule } from './reviews/reviews.module';
+import { ChatModule } from './chat/chat.module';
 
 @Module({
   imports: [
@@ -34,6 +36,8 @@ import { UploadModule } from './upload/upload.module';
     UsersModule,
     ServicesModule,
     UploadModule,
+    ReviewsModule,
+    ChatModule,
   ],
   controllers: [AppController],
   providers: [AppService],
