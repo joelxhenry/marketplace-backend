@@ -23,7 +23,28 @@
 
 ## Description
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+**Service Provider Marketplace API** - A comprehensive NestJS backend for connecting service providers with customers in Jamaica.
+
+### 🎉 Project Status
+- ✅ **Phase 1**: Core Infrastructure - COMPLETE
+- ✅ **Phase 2**: API Endpoints & Swagger - COMPLETE
+- 📋 **Phase 3**: Enhanced Features - Planned (Reviews, Chat, Notifications)
+- 💳 **Phase 4**: Payment Processing - Planned
+
+### 📚 Documentation
+- [Phase 1 Completion Summary](PHASE_1_COMPLETE.md)
+- [Phase 2 Completion Summary](PHASE_2_COMPLETE.md)
+- [Phase 2 Implementation Status](PHASE_2_IMPLEMENTATION_STATUS.md)
+- [API Documentation (Swagger)](http://localhost:3000/api/docs) - Available when running
+
+### 🚀 Features
+- 60+ REST API endpoints
+- JWT authentication with OAuth support (Google, Apple)
+- Role-based and permission-based authorization
+- Geospatial search with PostGIS
+- File upload functionality
+- Booking management (guest & registered users)
+- Comprehensive Swagger documentation
 
 ## Project setup
 

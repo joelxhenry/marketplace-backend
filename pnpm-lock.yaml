@@ -113,6 +113,9 @@ importers:
       rxjs:
         specifier: ^7.8.1
         version: 7.8.2
+      socket.io:
+        specifier: ^4.8.1
+        version: 4.8.1
       twilio:
         specifier: ^5.10.3
         version: 5.10.3
