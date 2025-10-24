@@ -2,19 +2,66 @@ import { Injectable, NotFoundException, ForbiddenException, ConflictException } 
 import { DatabaseService } from '../database/database.service';
 import { CreateProviderDto, UpdateProviderDto, AddTeamMemberDto } from './dto/provider.dto';
 import { PaginationDto } from '../common/dto/pagination.dto';
+import { generateSlug, generateUniqueSlug, isValidSlug } from '../common/utils/slug.util';
 
 @Injectable()
 export class ProvidersService {
   constructor(private readonly prisma: DatabaseService) {}
 
   /**
+   * Generate a unique slug for a provider
+   */
+  private async generateProviderSlug(businessName: string, providedSlug?: string): Promise<string> {
+    // If slug is provided, validate and use it
+    if (providedSlug) {
+      const sanitizedSlug = generateSlug(providedSlug);
+
+      // Check if slug already exists
+      const existingProvider = await this.prisma.provider.findUnique({
+        where: { slug: sanitizedSlug },
+      });
+
+      if (existingProvider) {
+        throw new ConflictException(`Slug "${sanitizedSlug}" is already taken`);
+      }
+
+      return sanitizedSlug;
+    }
+
+    // Generate slug from business name
+    const baseSlug = generateSlug(businessName);
+
+    // Get all existing slugs that start with the base slug
+    const existingProviders = await this.prisma.provider.findMany({
+      where: {
+        slug: {
+          startsWith: baseSlug,
+        },
+      },
+      select: { slug: true },
+    });
+
+    const existingSlugs = existingProviders.map((p) => p.slug);
+
+    // Generate unique slug by appending number if necessary
+    return generateUniqueSlug(baseSlug, existingSlugs);
+  }
+
+  /**
    * Create a new provider and assign the creator as owner
    */
   async create(createProviderDto: CreateProviderDto, userId: string) {
+    // Generate unique slug
+    const slug = await this.generateProviderSlug(
+      createProviderDto.businessName,
+      createProviderDto.slug,
+    );
+
     // Create provider with the creator as the first team member (owner)
     const provider = await this.prisma.provider.create({
       data: {
         ...createProviderDto,
+        slug,
         providerUsers: {
           create: {
             userId,
@@ -71,6 +118,7 @@ export class ProvidersService {
         select: {
           id: true,
           businessName: true,
+          slug: true,
           description: true,
           logoUrl: true,
           bannerUrl: true,
@@ -113,6 +161,7 @@ export class ProvidersService {
           select: {
             id: true,
             businessName: true,
+            slug: true,
             description: true,
             logoUrl: true,
             bannerUrl: true,
@@ -178,6 +227,57 @@ export class ProvidersService {
   }
 
   /**
+   * Get provider by slug
+   */
+  async findBySlug(slug: string) {
+    const provider = await this.prisma.provider.findUnique({
+      where: { slug },
+      include: {
+        providerUsers: {
+          where: { isActive: true },
+          include: {
+            user: {
+              select: {
+                id: true,
+                email: true,
+                firstName: true,
+                lastName: true,
+                avatar: true,
+              },
+            },
+          },
+        },
+        providerLocations: {
+          where: { isActive: true },
+        },
+        services: true,
+      },
+    });
+
+    if (!provider) {
+      throw new NotFoundException(`Provider with slug "${slug}" not found`);
+    }
+
+    return provider;
+  }
+
+  /**
+   * Check if a slug is available
+   */
+  async checkSlugAvailability(slug: string): Promise<{ available: boolean; slug: string }> {
+    const sanitizedSlug = generateSlug(slug);
+
+    const existingProvider = await this.prisma.provider.findUnique({
+      where: { slug: sanitizedSlug },
+    });
+
+    return {
+      available: !existingProvider,
+      slug: sanitizedSlug,
+    };
+  }
+
+  /**
    * Update provider (owners and authorized team members only)
    */
   async update(id: string, updateProviderDto: UpdateProviderDto, userId: string) {
@@ -203,10 +303,27 @@ export class ProvidersService {
       throw new ForbiddenException('You do not have permission to update this provider');
     }
 
+    // Handle slug update if provided
+    let updateData = { ...updateProviderDto };
+    if (updateProviderDto.slug) {
+      const sanitizedSlug = generateSlug(updateProviderDto.slug);
+
+      // Check if slug is already taken by another provider
+      const existingProvider = await this.prisma.provider.findUnique({
+        where: { slug: sanitizedSlug },
+      });
+
+      if (existingProvider && existingProvider.id !== id) {
+        throw new ConflictException(`Slug "${sanitizedSlug}" is already taken`);
+      }
+
+      updateData.slug = sanitizedSlug;
+    }
+
     // Update provider
     const updatedProvider = await this.prisma.provider.update({
       where: { id },
-      data: updateProviderDto,
+      data: updateData,
     });
 
     return updatedProvider;

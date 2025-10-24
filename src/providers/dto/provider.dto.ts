@@ -22,6 +22,14 @@ export class CreateProviderDto {
   @IsNotEmpty()
   businessName: string;
 
+  @ApiPropertyOptional({
+    description: 'URL-friendly slug for subdomain (auto-generated from businessName if not provided)',
+    example: 'elite-cleaning-services',
+  })
+  @IsString()
+  @IsOptional()
+  slug?: string;
+
   @ApiProperty({
     description: 'Business description',
     example: 'Professional cleaning services for homes and offices in Kingston',
@@ -131,6 +139,14 @@ export class UpdateProviderDto {
   @IsString()
   @IsOptional()
   businessName?: string;
+
+  @ApiPropertyOptional({
+    description: 'URL-friendly slug for subdomain',
+    example: 'elite-cleaning-services',
+  })
+  @IsString()
+  @IsOptional()
+  slug?: string;
 
   @ApiPropertyOptional({
     description: 'Business description',
@@ -251,6 +267,12 @@ export class ProviderResponseDto {
     example: 'Elite Cleaning Services',
   })
   businessName: string;
+
+  @ApiProperty({
+    description: 'URL-friendly slug for subdomain',
+    example: 'elite-cleaning-services',
+  })
+  slug: string;
 
   @ApiProperty({
     description: 'Business description',

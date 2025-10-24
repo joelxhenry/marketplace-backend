@@ -73,6 +73,7 @@ async function main() {
   const provider = await prisma.provider.create({
     data: {
       businessName: 'John\'s Premium Barbershop',
+      slug: 'johns-premium-barbershop',
       description: 'Premium barbershop services across Jamaica',
       businessPhone: '+1876-555-0123',
       businessEmail: 'info@johnsbarbershop.com',

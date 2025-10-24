@@ -127,6 +127,60 @@ export class ProvidersController {
     return this.providersService.findMyProviders(req.user.sub);
   }
 
+  @Get('slug/:slug')
+  @ApiOperation({
+    summary: 'Get provider by slug',
+    description: 'Get detailed provider information by slug (used for subdomain routing)',
+  })
+  @ApiParam({
+    name: 'slug',
+    description: 'Provider slug',
+    example: 'elite-cleaning-services',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Provider found',
+    type: ProviderResponseDto,
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'Provider not found',
+  })
+  async findBySlug(@Param('slug') slug: string) {
+    return this.providersService.findBySlug(slug);
+  }
+
+  @Get('check-slug/:slug')
+  @ApiOperation({
+    summary: 'Check slug availability',
+    description: 'Check if a slug is available for use. Returns sanitized slug and availability status.',
+  })
+  @ApiParam({
+    name: 'slug',
+    description: 'Slug to check',
+    example: 'my-business-name',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Slug availability checked',
+    schema: {
+      type: 'object',
+      properties: {
+        available: {
+          type: 'boolean',
+          example: true,
+        },
+        slug: {
+          type: 'string',
+          example: 'my-business-name',
+        },
+      },
+    },
+  })
+  async checkSlug(@Param('slug') slug: string) {
+    return this.providersService.checkSlugAvailability(slug);
+  }
+
   @Get(':id')
   @ApiOperation({
     summary: 'Get provider by ID',

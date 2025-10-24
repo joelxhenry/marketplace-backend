@@ -152,6 +152,7 @@ model Provider {
 
   // Business Information
   businessName String
+  slug         String  @unique // URL-friendly slug for subdomains
   description  String  @db.Text
   logoUrl      String?
   bannerUrl    String?
