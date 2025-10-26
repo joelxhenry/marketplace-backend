@@ -198,6 +198,7 @@ model Provider {
   reviews           Review[]           @relation("ProviderReviews")
   blogPosts         BlogPost[]
   portfolioItems    PortfolioItem[]
+  themeSettings     ProviderThemeSettings? // Custom theme for portfolio
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -673,4 +674,27 @@ model AuditLog {
   @@index([userId])
   @@index([entity, entityId])
   @@map("audit_logs")
+}
+
+// Theme System
+model ProviderThemeSettings {
+  id         String   @id @default(uuid())
+  providerId String   @unique
+  provider   Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+
+  // Theme configuration
+  themePresetId String? // Reference to preset theme ID (e.g., 'modern-green', 'classic-blue')
+  customTheme   Json?   // Full custom theme JSON (for paid tier)
+
+  // Quick customizations (available to all tiers)
+  primaryColor String? // Override primary color
+  accentColor  String? // Override accent color
+
+  // Custom CSS (paid tier only)
+  customCss String? @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("provider_theme_settings")
 }
